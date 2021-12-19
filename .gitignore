@@ -1,0 +1,6 @@
+.idea
+venv
+temp
+service_secret.json
+vk_auth.key
+vk_config.v2.json
