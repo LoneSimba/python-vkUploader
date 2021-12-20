@@ -1,31 +1,39 @@
 import os
+import re
 import shutil
+import requests
 
-from requests_html import HTMLSession
+import yadisk
+from pydrive2.drive import GoogleDrive
+
+from pydrive2.files import GoogleDriveFile
 
 DOWNLOAD_DIR = './temp'
 
 
-def download(source: str) -> bool:
+def download(source: str, args) -> bool:
     if not os.path.exists(DOWNLOAD_DIR):
         os.makedirs(DOWNLOAD_DIR)
 
     if 'cloud.mail.ru' in source:
         return download_mailru(source)
+    if 'disk.yandex.ru' in source or 'yadi.sk' in source:
+        return download_yadisk(source)
+    if 'drive.google.com' in source:
+        return download_gdrive(source, args)
     else:
         print("Еще не поддерживается!")
         return False
 
 
 def download_mailru(source: str) -> bool:
-    session = HTMLSession()
     weblink = source[29:]
 
     if weblink.endswith("/"):
         weblink = weblink[:-1]
 
-    items_r = session.get("https://cloud.mail.ru/api/v4/public/list?weblink="+weblink)
-    links_r = session.get("https://cloud.mail.ru/api/v2/dispatcher", headers={"referer": source})
+    items_r = requests.get("https://cloud.mail.ru/api/v4/public/list?weblink="+weblink)
+    links_r = requests.get("https://cloud.mail.ru/api/v2/dispatcher", headers={"referer": source})
 
     if items_r.status_code != 200 | links_r.status_code != 200:
         return False
@@ -43,17 +51,77 @@ def download_mailru(source: str) -> bool:
     for item in item_list:
         img_link = weblink_get + "/" + item.get('weblink')
 
-        img = session.get(img_link, stream=True)
+        img = requests.get(img_link, stream=True)
 
         if img.status_code == 200:
             img.raw.decode_content = True
 
-            with open(DOWNLOAD_DIR + "/" + item.get("name"), "wb") as f:
+            with open("%s/%s" % (DOWNLOAD_DIR, item.get("name")), "wb") as f:
                 shutil.copyfileobj(img.raw, f)
 
-            print("Файл", item.get("name"), "скачан")
+            print("Файл %s скачан" % item.get("name"))
+
         else:
             print("Ошибка при скачивании", item.get("name"))
+            return False
+
+    return True
+
+
+def download_yadisk(source: str) -> bool:
+    disk = yadisk.YaDisk()
+
+    data: yadisk.objects.PublicResourceObject
+    data = disk.get_public_meta(source)
+
+    items = []
+    if data.type == "dir":
+        items = data.embedded.items
+    else:
+        items = [data]
+
+    item: yadisk.objects.PublicResourceObject
+    for item in items:
+        if item.type == "dir":
+            continue
+
+        file = requests.get(item.file, stream=True)
+
+        if file.status_code == 200:
+            file.raw.decode_content = True
+
+            with open("%s/%s" % (DOWNLOAD_DIR, item.name), "wb") as f:
+                shutil.copyfileobj(file.raw, f)
+
+            print("Файл %s скачан" % item.name)
+
+        else:
+            print("Ошибка при скачивании", item.name)
+            return False
+
+    return True
+
+
+def download_gdrive(source: str,  drive: GoogleDrive) -> bool:
+
+    items = []
+    source_i = re.sub(r'(\?\w+\W+\w+)', '', source)
+    if "file/d/" in source:
+        fid = re.findall(r'd/([0-9a-z_-]+)', source, re.IGNORECASE)[0]
+        file_obj = drive.CreateFile({'id': fid})
+        file_obj.FetchMetadata(fetch_all=True)
+        items = [file_obj]
+    elif "folders/" in source:
+        fid = re.findall(r'folders/([0-9a-z_-]+)', source_i, re.IGNORECASE)[0]
+        items = drive.ListFile({'q': "'%s' in parents" % fid}).GetList()
+
+    item: GoogleDriveFile
+    for item in items:
+        try:
+            item.GetContentFile("%s/%s" % (DOWNLOAD_DIR, item.metadata.get('originalFilename')))
+            print("Файл %s скачан" % item.metadata.get('originalFilename'))
+        except Exception as e:
+            print("Ошибка при скачивании", item.metadata.get('originalFilename'))
             return False
 
     return True

@@ -1,14 +1,16 @@
 import os
 import mimetypes
-import subprocess
+import warnings
 
 import click
 import pygsheets
 import vk_api as vk
 
 import auth_vk
+import auth_gd
 import downloader
 
+from wand.image import Image
 from datetime import datetime
 
 VK_GROUP = '209413490'
@@ -17,6 +19,7 @@ VK_ALBUM = '282016227'
 GREEN = (0.8509804, 0.91764706, 0.827451, 0)
 GREY = (0.8509804, 0.8509804, 0.8509804, 0)
 BLUE = (0.23921569, 0.52156866, 0.7764706, 0)
+RED = (1, 0.8980392, 0.6, 0)
 
 
 @click.command()
@@ -38,43 +41,76 @@ def main(start, end):
     if not end:
         end = start
 
+    mimetypes.add_type("image/heic", "HEIC")
+
     vk_api = auth_vk.auth_vk_token()
     vk_uploader = vk.upload.VkUpload(vk_api)
-    g_api = pygsheets.authorize(service_file='service_secret.json')
-    sheet = g_api.open('Копия 2022"Оценочные листы "Я открываю книгу" 2022"')
+
+    gdrive = auth_gd.auth_gd()
+    gs_api = pygsheets.authorize(service_file='service_secret.json')
+    sheet = gs_api.open('Копия 2022"Оценочные листы "Я открываю книгу" 2022"')
 
     worksheet = sheet.sheet1
     rows = worksheet.get_values(start=(start, 1), end=(end, 17), returnas='cell')
 
     row: list[pygsheets.Cell]
     for row in rows:
-        if is_cells_colored(row):
-            print("Работа с номером", row[0].value_unformatted, "отмечена как исключенная, пропускаю")
+        if is_excluded(row):
+            print("Работа с номером", row[0].value_unformatted, "отмечена как исключенная или обработанная, пропускаю")
             continue
 
-        if is_cell_colored(row[12]):
-            print("Работа с номером", row[0].value_unformatted, "отмечена как обработанная, пропускаю")
-            continue
-
-        if downloader.download(row[15].value_unformatted):
+        if downloader.download(row[15].value_unformatted, gdrive):
             dir = os.fsencode(downloader.DOWNLOAD_DIR)
+            files_cnt = 0
 
             for file in os.listdir(dir):
                 filename = os.fsdecode(file)
                 path = downloader.DOWNLOAD_DIR + "/" + filename
                 (mime, _) = mimetypes.guess_type(filename)
 
-                if "image" not in mime:
+                if not mime:
+                    tmp_name = filename.lower()
+                    if ".heic" in tmp_name:
+                        tmp_name = tmp_name.replace(".heic", ".jpg")
+                        tmp_path = downloader.DOWNLOAD_DIR + "/" + tmp_name
+
+                        f = open(tmp_path, "wb")
+                        f.close()
+
+                        img = Image(filename=path)
+                        img.format = 'jpg'
+                        img.save(filename=tmp_path)
+                        img.close()
+
+                        os.remove(path)
+
+                        path = tmp_path
+                        filename = tmp_name
+                        (mime, _) = mimetypes.guess_type(filename)
+
+                if not mime or "image" not in mime:
                     print("Ошибка: %s не является изображением (%s)! Пропускаю" % (filename, mime))
+                    os.remove(path)
                     continue
                 elif not (("gif" in mime) or ("jpeg" in mime) or ("png" in mime)):
-                    # subprocess.call("heic2jpeg -s " + path + " --keep")
                     print("Ошибка: не поддерживаемый формат изображения (Ожидаются: gif, jpeg/jpg, png) у файла ",
                           filename, "! Пропускаю")
+                    os.remove(path)
                     continue
 
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    with Image(filename=path) as img:
+                        if img.width > 7000 or img.height > 7000:
+                            if img.width > img.height:
+                                img.transform(resize='7000x')
+                            else:
+                                img.transform(resize='x7000')
+                            img.save(filename=path)
+                            img.close()
+
                 caption = "\"%s\". %s\n" % (row[12].value_unformatted, row[13].value_unformatted)
-                caption += "Автор - %s, %s лет.\n" % (row[5].value_unformatted, row[6].value_unformatted)
+                caption += "Автор - %s, %s лет.\n" % (row[5].value_unformatted, row[6].value)
                 caption += "Педагог - %s\n" % row[9].value_unformatted
                 caption += "%s, %s" % (row[2].value_unformatted, row[3].value_unformatted)
                 caption += "\n\nfile: %s" % filename
@@ -82,9 +118,20 @@ def main(start, end):
                 if vk_uploader.photo(path, VK_ALBUM, None, None, caption, None, VK_GROUP):
                     os.remove(path)
                     print("Изображение", filename, "загружено!")
+                    files_cnt += 1
+
+            print("Работа с номером %s загружена! Изображений: %i" % (row[0].value_unformatted, files_cnt))
 
         else:
             print("Не удалось скачать работу с номером", row[0].value_unformatted)
+
+
+def is_excluded(cells: list[pygsheets.Cell]) -> bool:
+    return is_cells_colored(cells) or is_cell_colored(cells[12]) or is_repeated(cells)
+
+
+def is_repeated(cells: list[pygsheets.Cell]) -> bool:
+    return "повтор" in cells[16].value_unformatted.lower()
 
 
 # Проверка закрашенности массива ячеек
@@ -97,7 +144,7 @@ def is_cells_colored(cells: list[pygsheets.Cell]) -> bool:
 
 
 def is_cell_colored(cell: pygsheets.Cell) -> bool:
-    return cell.color == GREY or cell.color == BLUE or cell.color == GREEN
+    return cell.color == GREY or cell.color == BLUE or cell.color == GREEN or cell.color == RED
 
 
 def calc_age(year: str) -> str:

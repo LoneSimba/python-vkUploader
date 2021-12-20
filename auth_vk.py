@@ -31,10 +31,12 @@ def auth_vk_token():
         else:
             token_obj = json.loads(token)
 
-            session = vk_api.VkApi(login=token_obj.get('login'), token=token_obj.get('token'))
-            session.auth()
-
-            return session.get_api()
+            try:
+                session = vk_api.VkApi(login=token_obj.get('login'), token=token_obj.get('token'))
+                session.auth()
+                return session.get_api()
+            except vk_api.PasswordRequired as e:
+                return auth_vk_password()
 
     except IOError as e:
         return auth_vk_password()
