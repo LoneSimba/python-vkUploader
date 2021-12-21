@@ -5,7 +5,6 @@ import requests
 
 import yadisk
 from pydrive2.drive import GoogleDrive
-
 from pydrive2.files import GoogleDriveFile
 
 DOWNLOAD_DIR = './temp'
@@ -17,12 +16,12 @@ def download(source: str, args) -> bool:
 
     if 'cloud.mail.ru' in source:
         return download_mailru(source)
-    if 'disk.yandex.ru' in source or 'yadi.sk' in source:
+    if 'disk.yandex' in source or 'yadi.sk' in source:
         return download_yadisk(source)
     if 'drive.google.com' in source:
         return download_gdrive(source, args)
     else:
-        print("Еще не поддерживается!")
+        print("Еще не поддерживается:", source)
         return False
 
 
@@ -50,16 +49,20 @@ def download_mailru(source: str) -> bool:
 
     for item in item_list:
         img_link = weblink_get + "/" + item.get('weblink')
+        img_name = re.sub(r'[\"?><:\\/|*]', '', item.get("name"))
+
+        if '.jfif' in img_name:
+            img_name = img_name.replace('.jfif', '.jpg')
 
         img = requests.get(img_link, stream=True)
 
         if img.status_code == 200:
             img.raw.decode_content = True
 
-            with open("%s/%s" % (DOWNLOAD_DIR, item.get("name")), "wb") as f:
+            with open("%s/%s" % (DOWNLOAD_DIR, img_name), "wb") as f:
                 shutil.copyfileobj(img.raw, f)
 
-            print("Файл %s скачан" % item.get("name"))
+            print("Файл %s скачан" % img_name)
 
         else:
             print("Ошибка при скачивании", item.get("name"))
@@ -71,43 +74,49 @@ def download_mailru(source: str) -> bool:
 def download_yadisk(source: str) -> bool:
     disk = yadisk.YaDisk()
 
-    data: yadisk.objects.PublicResourceObject
-    data = disk.get_public_meta(source)
+    links = source.split(' ')
 
-    items = []
-    if data.type == "dir":
-        items = data.embedded.items
-    else:
-        items = [data]
+    for link in links:
+        data: yadisk.objects.PublicResourceObject
+        data = disk.get_public_meta(link)
 
-    item: yadisk.objects.PublicResourceObject
-    for item in items:
-        if item.type == "dir":
-            continue
-
-        file = requests.get(item.file, stream=True)
-
-        if file.status_code == 200:
-            file.raw.decode_content = True
-
-            with open("%s/%s" % (DOWNLOAD_DIR, item.name), "wb") as f:
-                shutil.copyfileobj(file.raw, f)
-
-            print("Файл %s скачан" % item.name)
-
+        items = []
+        if data.type == "dir":
+            items = data.embedded.items
         else:
-            print("Ошибка при скачивании", item.name)
-            return False
+            items = [data]
+
+        item: yadisk.objects.PublicResourceObject
+        for item in items:
+            if item.type == "dir":
+                continue
+
+            file = requests.get(item.file, stream=True)
+            img_name = re.sub(r'[\"?><:\\/|*]', '', item.name)
+
+            if '.jfif' in img_name:
+                img_name = img_name.replace('.jfif', '.jpg')
+
+            if file.status_code == 200:
+                file.raw.decode_content = True
+
+                with open("%s/%s" % (DOWNLOAD_DIR, img_name), "wb") as f:
+                    shutil.copyfileobj(file.raw, f)
+
+                print("Файл %s скачан" % img_name)
+
+            else:
+                print("Ошибка при скачивании", item.name)
+                return False
 
     return True
 
 
 def download_gdrive(source: str,  drive: GoogleDrive) -> bool:
-
     items = []
     source_i = re.sub(r'(\?\w+\W+\w+)', '', source)
     if "file/d/" in source:
-        fid = re.findall(r'd/([0-9a-z_-]+)', source, re.IGNORECASE)[0]
+        fid = re.findall(r'd/([0-9a-z_-]+)', source_i, re.IGNORECASE)[0]
         file_obj = drive.CreateFile({'id': fid})
         file_obj.FetchMetadata(fetch_all=True)
         items = [file_obj]
@@ -118,8 +127,13 @@ def download_gdrive(source: str,  drive: GoogleDrive) -> bool:
     item: GoogleDriveFile
     for item in items:
         try:
-            item.GetContentFile("%s/%s" % (DOWNLOAD_DIR, item.metadata.get('originalFilename')))
-            print("Файл %s скачан" % item.metadata.get('originalFilename'))
+            img_name = re.sub(r'[\"?><:\\/|*]', '', item.metadata.get('originalFilename'))
+
+            if '.jfif' in img_name:
+                img_name = img_name.replace('.jfif', '.jpg')
+
+            item.GetContentFile("%s/%s" % (DOWNLOAD_DIR, img_name))
+            print("Файл %s скачан" % img_name)
         except Exception as e:
             print("Ошибка при скачивании", item.metadata.get('originalFilename'))
             return False

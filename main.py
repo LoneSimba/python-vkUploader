@@ -19,7 +19,7 @@ VK_ALBUM = '282016227'
 GREEN = (0.8509804, 0.91764706, 0.827451, 0)
 GREY = (0.8509804, 0.8509804, 0.8509804, 0)
 BLUE = (0.23921569, 0.52156866, 0.7764706, 0)
-RED = (1, 0.8980392, 0.6, 0)
+RED = (0.91764706, 0.6, 0.6, 0)
 
 
 @click.command()
@@ -47,6 +47,7 @@ def main(start, end):
     vk_uploader = vk.upload.VkUpload(vk_api)
 
     gdrive = auth_gd.auth_gd()
+
     gs_api = pygsheets.authorize(service_file='service_secret.json')
     sheet = gs_api.open('Копия 2022"Оценочные листы "Я открываю книгу" 2022"')
 
@@ -120,7 +121,10 @@ def main(start, end):
                     print("Изображение", filename, "загружено!")
                     files_cnt += 1
 
-            print("Работа с номером %s загружена! Изображений: %i" % (row[0].value_unformatted, files_cnt))
+            if files_cnt > 0:
+                print("Работа с номером %s загружена! Изображений: %i" % (row[0].value_unformatted, files_cnt))
+            else:
+                print("Не удалось загрузить работу с номером", row[0].value_unformatted)
 
         else:
             print("Не удалось скачать работу с номером", row[0].value_unformatted)
