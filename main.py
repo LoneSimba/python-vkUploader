@@ -20,6 +20,7 @@ GREEN = (0.8509804, 0.91764706, 0.827451, 0)
 GREY = (0.8509804, 0.8509804, 0.8509804, 0)
 BLUE = (0.23921569, 0.52156866, 0.7764706, 0)
 RED = (0.91764706, 0.6, 0.6, 0)
+DARK_GREY = (0.8, 0.8, 0.8, 0)
 
 
 @click.command()
@@ -49,7 +50,7 @@ def main(start, end):
     gdrive = auth_gd.auth_gd()
 
     gs_api = pygsheets.authorize(service_file='service_secret.json')
-    sheet = gs_api.open('Копия 2022"Оценочные листы "Я открываю книгу" 2022"')
+    sheet = gs_api.open('2022"Оценочные листы "Я открываю книгу" 2022"')
 
     worksheet = sheet.sheet1
     rows = worksheet.get_values(start=(start, 1), end=(end, 17), returnas='cell')
@@ -135,13 +136,13 @@ def is_excluded(cells: list[pygsheets.Cell]) -> bool:
 
 
 def is_repeated(cells: list[pygsheets.Cell]) -> bool:
-    return "повтор" in cells[16].value_unformatted.lower()
+    return "повтор" in cells[16].value_unformatted.lower() or "копия" in cells[16].value_unformatted.lower()
 
 
 # Проверка закрашенности массива ячеек
 def is_cells_colored(cells: list[pygsheets.Cell]) -> bool:
     for cell in cells:
-        if cell.color != GREY:
+        if cell.color != DARK_GREY:
             return False
 
     return True

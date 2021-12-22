@@ -6,6 +6,7 @@ import requests
 import yadisk
 from pydrive2.drive import GoogleDrive
 from pydrive2.files import GoogleDriveFile
+from yadisk.exceptions import PathNotFoundError
 
 DOWNLOAD_DIR = './temp'
 
@@ -77,8 +78,15 @@ def download_yadisk(source: str) -> bool:
     links = source.split(' ')
 
     for link in links:
+        if "http" not in link:
+            continue
+
         data: yadisk.objects.PublicResourceObject
-        data = disk.get_public_meta(link)
+        try:
+            data = disk.get_public_meta(link)
+        except PathNotFoundError as e:
+            print("Ошибка: путь не найден, %s" % link)
+            return False
 
         items = []
         if data.type == "dir":
