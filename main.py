@@ -55,6 +55,8 @@ def main(start, end):
     worksheet = sheet.sheet1
     rows = worksheet.get_values(start=(start, 1), end=(end, 17), returnas='cell')
 
+    uploaded = skipped = failed = 0
+
     row: list[pygsheets.Cell]
     for row in rows:
         if is_excluded(row):
@@ -92,11 +94,13 @@ def main(start, end):
 
                 if not mime or "image" not in mime:
                     print("Ошибка: %s не является изображением (%s)! Пропускаю" % (filename, mime))
+                    skipped += 1
                     os.remove(path)
                     continue
                 elif not (("gif" in mime) or ("jpeg" in mime) or ("png" in mime)):
                     print("Ошибка: не поддерживаемый формат изображения (Ожидаются: gif, jpeg/jpg, png) у файла ",
                           filename, "! Пропускаю")
+                    skipped += 1
                     os.remove(path)
                     continue
 
@@ -117,18 +121,30 @@ def main(start, end):
                 caption += "%s, %s" % (row[2].value_unformatted, row[3].value_unformatted)
                 caption += "\n\nfile: %s" % filename
 
-                if vk_uploader.photo(path, VK_ALBUM, None, None, caption, None, VK_GROUP):
+                try:
+                    if vk_uploader.photo(path, VK_ALBUM, None, None, caption, None, VK_GROUP):
+                        print("Изображение", filename, "загружено!")
+                        files_cnt += 1
+                except Exception as e:
+                    print("Не удалось загрузить изображение %s" % path)
+                    failed += 1
+                finally:
                     os.remove(path)
-                    print("Изображение", filename, "загружено!")
-                    files_cnt += 1
 
             if files_cnt > 0:
+                row[12].color = GREY
+                uploaded += files_cnt
                 print("Работа с номером %s загружена! Изображений: %i" % (row[0].value_unformatted, files_cnt))
             else:
-                print("Не удалось загрузить работу с номером", row[0].value_unformatted)
+                failed += 1
+                print("Не удалось загрузить работу с номером", row[0].value_unformatted, row[15].value_unformatted)
 
         else:
+            failed += 1
             print("Не удалось скачать работу с номером", row[0].value_unformatted)
+
+    print("Обработка завершена! Загружено: %i, Пропущено: %i, Ошибки при скачивании/загрузке: %i" %
+          (uploaded, skipped, failed))
 
 
 def is_excluded(cells: list[pygsheets.Cell]) -> bool:
